@@ -1,0 +1,202 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Interactive Timer Tool</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #ffffff;
+      color: #333;
+      padding: 40px;
+      text-align: center;
+    }
+    h2 {
+      color: #156E4F;
+      margin-bottom: 20px;
+      text-shadow: 1px 1px rgba(0, 0, 0, 0.05);
+    }
+    label {
+      font-size: 16px;
+      margin: 10px;
+    }
+    input {
+      width: 80px;
+      padding: 6px;
+      font-size: 16px;
+      margin-left: 6px;
+      border: 2px solid #156E4F;
+      border-radius: 6px;
+      outline: none;
+    }
+    #results p {
+      font-size: 18px;
+      color: #156E4F;
+      font-weight: 600;
+      margin: 6px 0;
+    }
+    table {
+      margin: 30px auto;
+      border-collapse: collapse;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    th {
+      background-color: #156E4F;
+      color: #ffffff;
+      font-size: 16px;
+      padding: 12px 16px;
+    }
+    td {
+      border: 1px solid #000;
+      padding: 10px 16px;
+      font-size: 16px;
+    }
+    .on td { background-color: #fff9c4; }
+    .off td { background-color: #f8f9fa; }
+    .on td.time-12 { background-color: #fff59d; }
+    .off td.time-12 { background-color: #eeeeee; }
+    .status-on {
+      font-size: 22px;
+      font-weight: bold;
+      color: #fbc02d;
+      text-shadow: -1px -1px 0 #000, 1px -1px 0 #000,
+                   -1px 1px 0 #000, 1px 1px 0 #000;
+    }
+    .status-off {
+      background-color: #c62828;
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 5px;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    .input-group { display: inline-block; margin: 5px 15px; }
+    footer {
+      margin-top: 40px;
+      font-size: 14px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <h2>Interactive Timer Tool</h2>
+
+  <div class="input-group">
+    <label>Lights On (1–24): <input id="start" type="number" min="1" max="24" value="8"></label>
+  </div>
+  <div class="input-group">
+    <label>Duration (hrs): <input id="duration" type="number" min="1" max="24" value="12"></label>
+  </div>
+  <br>
+  <div class="input-group">
+    <label>PPFD (µmol/m²/s): <input id="ppfd" type="number" min="0" step="1" value="800"></label>
+  </div>
+  <div class="input-group">
+    <label>Ramp Up (min): <input id="rampUp" type="number" min="0" step="1" value="0"></label>
+  </div>
+  <div class="input-group">
+    <label>Ramp Down (min): <input id="rampDown" type="number" min="0" step="1" value="0"></label>
+  </div>
+  <div class="input-group">
+    <label>Ramping % (0–100): <input id="rampPercent" type="number" min="0" max="100" value="0"></label>
+  </div>
+
+  <div id="results">
+    <p id="dliMaxDisplay"></p>
+    <p id="dliDisplay"></p>
+    <p id="dliReduction"></p>
+    <p id="offTimeDisplay"></p>
+  </div>
+
+  <table id="timeTable">
+    <thead>
+      <tr><th>24-Hour Time</th><th>12-Hour Time</th><th>Status</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <footer>
+    Created and developed by Dr. Allison Justice and the Cannabis Research Coalition.
+  </footer>
+
+  <script>
+    function formatTime(hour24) {
+      let h12 = hour24 % 12;
+      h12 = h12 === 0 ? 12 : h12;
+      const suffix = hour24 < 12 ? 'AM' : 'PM';
+      return h12 + ":00 " + suffix;
+    }
+
+    function militaryDisplay(hour24) {
+      return hour24.toString().padStart(2, '0') + ":00";
+    }
+
+    function computeDLI(ppfd, durationHrs, rampUpSec, rampDownSec, finalFactor) {
+      const totalSec = durationHrs * 3600;
+      const constantSec = Math.max(totalSec - rampUpSec - rampDownSec, 0);
+      const rampUpIntegral = ppfd * 0.5 * rampUpSec;
+      const constantIntegral = ppfd * constantSec;
+      const avgFactorDown = (1 + finalFactor) / 2;
+      const rampDownIntegral = ppfd * avgFactorDown * rampDownSec;
+      const micromolDay = rampUpIntegral + constantIntegral + rampDownIntegral;
+      return micromolDay / 1e6;
+    }
+
+    function renderTable() {
+      const start = parseInt(document.getElementById('start').value);
+      const duration = parseInt(document.getElementById('duration').value);
+      const ppfd = parseFloat(document.getElementById('ppfd').value);
+      const rampUpMin = parseInt(document.getElementById('rampUp').value);
+      const rampDownMin = parseInt(document.getElementById('rampDown').value);
+      const rampPercent = parseFloat(document.getElementById('rampPercent').value);
+      if (isNaN(start) || isNaN(duration) || isNaN(ppfd) || duration < 1 || duration > 24) return;
+
+      const highlight = Array.from({length: duration}, (_, i) => ((start + i - 1) % 24) + 1);
+      const offHour24 = (start - 1 + duration) % 24;
+      document.getElementById('offTimeDisplay').innerText =
+        "Lights Off Time: " + militaryDisplay(offHour24) + " (" + formatTime(offHour24) + ")";
+
+      const rampUpSec = Math.max(rampUpMin, 0) * 60;
+      const rampDownSec = Math.max(rampDownMin, 0) * 60;
+      const finalFactor = Math.max(0, 1 - (isNaN(rampPercent) ? 0 : rampPercent / 100));
+      const dliVal = computeDLI(ppfd, duration, rampUpSec, rampDownSec, finalFactor);
+      const dliMax = ppfd * duration * 3600 / 1e6;
+
+      document.getElementById("dliMaxDisplay").innerText =
+        "Entered (Max) DLI: " + dliMax.toFixed(2) + " mol/m²/day";
+      document.getElementById("dliDisplay").innerText =
+        "Adjusted DLI: " + dliVal.toFixed(2) + " mol/m²/day";
+
+      const reduction = (1 - dliVal / dliMax) * 100;
+      document.getElementById("dliReduction").innerText =
+        (reduction > 0) ?
+        ("DLI reduced by " + reduction.toFixed(1) + "% due to ramping/dimming") : "";
+
+      const tbody = document.querySelector("#timeTable tbody");
+      tbody.innerHTML = "";
+      for (let i = 1; i <= 24; i++) {
+        const isOn = highlight.includes(i);
+        const row = document.createElement("tr");
+        row.className = isOn ? "on" : "off";
+        const statusHTML = isOn
+          ? `<span class="status-on">☀️</span>`
+          : `<span class="status-off">OFF</span>`;
+        const hour24 = i % 24;
+        row.innerHTML = `
+          <td>${militaryDisplay(hour24)}</td>
+          <td class="time-12">${formatTime(hour24)}</td>
+          <td>${statusHTML}</td>
+        `;
+        tbody.appendChild(row);
+      }
+    }
+
+    ['start','duration','ppfd','rampUp','rampDown','rampPercent'].forEach(id =>
+      document.getElementById(id).addEventListener('input', renderTable)
+    );
+    renderTable();
+  </script>
+</body>
+</html>
